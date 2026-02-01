@@ -264,155 +264,155 @@ def main():
                     X_holdout, y_holdout = None, None  # 留出集设为None
 
                 # ============ Optuna 超参优化 ============
-                log_message(f"启动 Optuna 超参优化 (任务 {task_idx}: {task_name}), 共 {N_TRIALS} 次尝试...")
+                log_message(f"启动 Optuna 超参优化 (任务 {task_idx}: {task_name}), 共 {N_TRIALS} 次尝试...")  # 记录超参优化开始日志
                 
-                study = optuna.create_study(
-                    direction='maximize',
-                    sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE)
+                study = optuna.create_study(  # 创建Optuna优化研究对象
+                    direction='maximize',  # 优化方向：最大化目标函数值
+                    sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE)  # 使用TPE（Tree-structured Parzen Estimator）采样器，设置随机种子
                 )
                 
-                study.optimize(
-                    lambda trial: objective(trial, X_train_dev, y_train_dev),
-                    n_trials=N_TRIALS,
-                    timeout=OPTUNA_TIMEOUT
+                study.optimize(  # 执行超参数优化
+                    lambda trial: objective(trial, X_train_dev, y_train_dev),  # 优化目标函数：传入trial对象和训练数据
+                    n_trials=N_TRIALS,  # 优化试验次数
+                    timeout=OPTUNA_TIMEOUT  # 超时时间限制（秒）
                 )
                 
-                best_params = study.best_params
-                best_value = study.best_value
+                best_params = study.best_params  # 获取最佳超参数组合
+                best_value = study.best_value  # 获取最佳目标函数值
                 
-                log_message(f"Optuna 优化完成: 最佳分数 = {best_value:.6f}")
-                log_message(f"最佳超参: {best_params}")
+                log_message(f"Optuna 优化完成: 最佳分数 = {best_value:.6f}")  # 记录最佳分数
+                log_message(f"最佳超参: {best_params}")  # 记录最佳超参数
                 
                 # 保存优化结果
-                with open(os.path.join(task_dir, 'optuna_best_params.json'), 'w') as f:
-                    json.dump({
-                        'best_params': best_params,
-                        'best_score': best_value,
-                        'n_trials': N_TRIALS,
-                        'weights': OPTUNA_OBJECTIVE_WEIGHTS
-                    }, f, indent=2)
+                with open(os.path.join(task_dir, 'optuna_best_params.json'), 'w') as f:  # 打开JSON文件用于保存最佳参数
+                    json.dump({  # 将字典写入JSON文件
+                        'best_params': best_params,  # 最佳超参数
+                        'best_score': best_value,  # 最佳分数
+                        'n_trials': N_TRIALS,  # 优化试验次数
+                        'weights': OPTUNA_OBJECTIVE_WEIGHTS  # 优化目标权重
+                    }, f, indent=2)  # 缩进2个空格，使JSON格式更易读
 
                 # 把最佳超参加入到 XGB 配置
-                best_xgb_params = {
-                    'objective': 'binary:logistic',
-                    'eval_metric': 'auc',
-                    'tree_method': 'gpu_hist' if USE_GPU else 'hist',
-                    'verbosity': 0,
-                    **best_params
+                best_xgb_params = {  # 创建XGBoost参数字典
+                    'objective': 'binary:logistic',  # 二分类逻辑回归目标
+                    'eval_metric': 'auc',  # 评估指标
+                    'tree_method': 'gpu_hist' if USE_GPU else 'hist',  # 树构建方法
+                    'verbosity': 0,  # 日志详细程度
+                    **best_params  # 展开最佳超参数字典，合并到参数字典中
                 }
 
                 # ============ 分层 10 折交叉验证 ============
-                log_message(f"使用最佳超参进行 {N_SPLITS} 折交叉验证评估...")
+                log_message(f"使用最佳超参进行 {N_SPLITS} 折交叉验证评估...")  # 记录交叉验证开始日志
                 
-                kf = StratifiedKFold(n_splits=N_SPLITS, shuffle=SHUFFLE, random_state=RANDOM_STATE)
-                fold_metrics_list = []
-                fold_pred_records = []
+                kf = StratifiedKFold(n_splits=N_SPLITS, shuffle=SHUFFLE, random_state=RANDOM_STATE)  # 创建分层K折交叉验证对象
+                fold_metrics_list = []  # 初始化每折指标列表
+                fold_pred_records = []  # 初始化每折预测记录列表
 
-                for fold_id, (tr_idx, te_idx) in enumerate(kf.split(X_train_dev, y_train_dev), start=1):
-                    X_tr = X_train_dev[tr_idx]
-                    y_tr = y_train_dev[tr_idx]
-                    X_te = X_train_dev[te_idx]
-                    y_te = y_train_dev[te_idx]
+                for fold_id, (tr_idx, te_idx) in enumerate(kf.split(X_train_dev, y_train_dev), start=1):  # 遍历每一折，索引从1开始
+                    X_tr = X_train_dev[tr_idx]  # 根据训练索引获取训练集特征
+                    y_tr = y_train_dev[tr_idx]  # 根据训练索引获取训练集标签
+                    X_te = X_train_dev[te_idx]  # 根据测试索引获取测试集特征
+                    y_te = y_train_dev[te_idx]  # 根据测试索引获取测试集标签
                     
                     # 使用最佳超参训练模型
-                    model = xgb.XGBClassifier(**best_xgb_params)
+                    model = xgb.XGBClassifier(**best_xgb_params)  # 使用最佳超参数创建XGBoost分类器
                     
                     # 使用早停避免过拟合
-                    model.fit(
-                        X_tr, y_tr,
-                        eval_set=[(X_te, y_te)],
-                        verbose=False,
-                        early_stopping_rounds=25
+                    model.fit(  # 训练模型
+                        X_tr, y_tr,  # 训练集特征和标签
+                        eval_set=[(X_te, y_te)],  # 验证集，用于早停判断
+                        verbose=False,  # 不输出训练过程
+                        early_stopping_rounds=25  # 早停轮数：25轮无提升则停止
                     )
 
                     # 验证折预测
-                    y_te_proba = model.predict_proba(X_te)[:, 1]
-                    y_te_pred = (y_te_proba > 0.5).astype(int)
+                    y_te_proba = model.predict_proba(X_te)[:, 1]  # 获取测试集的正类预测概率（第二列）
+                    y_te_pred = (y_te_proba > 0.5).astype(int)  # 根据0.5阈值将概率转换为二分类预测（0或1）
 
                     # 计算评估指标
-                    m = evaluate_model(y_te, y_te_pred, y_te_proba)
-                    fold_metrics_list.append({'fold': fold_id, **m})
+                    m = evaluate_model(y_te, y_te_pred, y_te_proba)  # 计算所有评估指标
+                    fold_metrics_list.append({'fold': fold_id, **m})  # 将折编号和指标合并后添加到列表
 
                     # 记录每折预测
-                    fold_pred_records.append(pd.DataFrame({
-                        'fold': fold_id,
-                        'y_true': y_te,
-                        'y_pred': y_te_pred,
-                        'y_proba': y_te_proba
+                    fold_pred_records.append(pd.DataFrame({  # 创建包含预测结果的DataFrame
+                        'fold': fold_id,  # 折编号
+                        'y_true': y_te,  # 真实标签
+                        'y_pred': y_te_pred,  # 预测标签
+                        'y_proba': y_te_proba  # 预测概率
                     }))
 
-                    log_message(f"任务 {task_idx} | 折 {fold_id} 指标: {m}")
+                    log_message(f"任务 {task_idx} | 折 {fold_id} 指标: {m}")  # 记录当前折的评估指标
 
                 # 保存每折指标
-                cv_df = pd.DataFrame(fold_metrics_list)
-                cv_df.to_csv(os.path.join(task_dir, 'cv_fold_metrics.csv'), index=False)
+                cv_df = pd.DataFrame(fold_metrics_list)  # 将指标列表转换为DataFrame
+                cv_df.to_csv(os.path.join(task_dir, 'cv_fold_metrics.csv'), index=False)  # 保存为CSV文件，不包含行索引
 
                 # 保存每折预测
-                preds_df = pd.concat(fold_pred_records, ignore_index=True)
-                preds_df.to_csv(os.path.join(task_dir, 'cv_fold_predictions.csv'), index=False)
+                preds_df = pd.concat(fold_pred_records, ignore_index=True)  # 合并所有折的预测结果，重置索引
+                preds_df.to_csv(os.path.join(task_dir, 'cv_fold_predictions.csv'), index=False)  # 保存为CSV文件
 
                 # 写入任务级汇总（均值 ± 标准差）
-                with open(os.path.join(task_dir, 'cv_summary.txt'), 'w') as tf:
-                    tf.write(f"Task: {task_name}\n")
-                    tf.write(f"超参优化: Optuna ({N_TRIALS} 次尝试), 最佳分数: {best_value:.6f}\n")
-                    tf.write(f"最佳超参: {json.dumps(best_params, indent=2)}\n\n")
-                    tf.write(f"Stratified 10-Fold CV 评估结果（均值 ± 标准差）:\n")
-                    for metric in ['ROC AUC', 'PR AUC', 'Accuracy', 'F1', 'MCC',
+                with open(os.path.join(task_dir, 'cv_summary.txt'), 'w') as tf:  # 打开任务级汇总文件
+                    tf.write(f"Task: {task_name}\n")  # 写入任务名称
+                    tf.write(f"超参优化: Optuna ({N_TRIALS} 次尝试), 最佳分数: {best_value:.6f}\n")  # 写入超参优化信息
+                    tf.write(f"最佳超参: {json.dumps(best_params, indent=2)}\n\n")  # 写入最佳超参数（JSON格式）
+                    tf.write(f"Stratified 10-Fold CV 评估结果（均值 ± 标准差）:\n")  # 写入标题
+                    for metric in ['ROC AUC', 'PR AUC', 'Accuracy', 'F1', 'MCC',  # 遍历所有评估指标
                                    'Balanced Accuracy', 'Sensitivity', 'Specificity']:
-                        mean_val = cv_df[metric].mean()
-                        std_val = cv_df[metric].std()
-                        tf.write(f"- {metric}: {mean_val:.6f} ± {std_val:.6f}\n")
+                        mean_val = cv_df[metric].mean()  # 计算该指标的均值
+                        std_val = cv_df[metric].std()  # 计算该指标的标准差
+                        tf.write(f"- {metric}: {mean_val:.6f} ± {std_val:.6f}\n")  # 写入均值±标准差格式的结果
 
-                if USE_EXTERNAL_HOLDOUT:
+                if USE_EXTERNAL_HOLDOUT:  # 如果启用了外部留出集
                     # 在全部训练开发集上训练最终模型
-                    final_model = xgb.XGBClassifier(**best_xgb_params)
-                    final_model.fit(X_train_dev, y_train_dev)
+                    final_model = xgb.XGBClassifier(**best_xgb_params)  # 使用最佳超参数创建最终模型
+                    final_model.fit(X_train_dev, y_train_dev)  # 在全部训练开发集上训练模型
 
                     # 在外部留出测试集上评估
-                    y_hold_proba = final_model.predict_proba(X_holdout)[:, 1]
-                    y_hold_pred = (y_hold_proba > 0.5).astype(int)
-                    hold_metrics = evaluate_model(y_holdout, y_hold_pred, y_hold_proba)
+                    y_hold_proba = final_model.predict_proba(X_holdout)[:, 1]  # 获取留出集的正类预测概率
+                    y_hold_pred = (y_hold_proba > 0.5).astype(int)  # 根据0.5阈值转换为二分类预测
+                    hold_metrics = evaluate_model(y_holdout, y_hold_pred, y_hold_proba)  # 计算留出集评估指标
 
                     # 保存外部留出集结果
-                    pd.DataFrame([hold_metrics]).to_csv(os.path.join(task_dir, 'external_holdout_metrics.csv'), index=False)
-                    pd.DataFrame({
-                        'y_true': y_holdout,
-                        'y_pred': y_hold_pred,
-                        'y_proba': y_hold_proba
-                    }).to_csv(os.path.join(task_dir, 'external_holdout_predictions.csv'), index=False)
+                    pd.DataFrame([hold_metrics]).to_csv(os.path.join(task_dir, 'external_holdout_metrics.csv'), index=False)  # 保存留出集指标
+                    pd.DataFrame({  # 创建包含预测结果的DataFrame
+                        'y_true': y_holdout,  # 真实标签
+                        'y_pred': y_hold_pred,  # 预测标签
+                        'y_proba': y_hold_proba  # 预测概率
+                    }).to_csv(os.path.join(task_dir, 'external_holdout_predictions.csv'), index=False)  # 保存留出集预测结果
                     
                     # 保存最终模型
-                    model_path = os.path.join(task_dir, 'final_model.joblib')
-                    joblib.dump(final_model, model_path)
-                    log_message(f"保存最终模型到: {model_path}")
+                    model_path = os.path.join(task_dir, 'final_model.joblib')  # 拼接模型保存路径
+                    joblib.dump(final_model, model_path)  # 使用joblib保存模型到文件
+                    log_message(f"保存最终模型到: {model_path}")  # 记录模型保存日志
 
                 # 写入全局汇总日志
-                with open(log_path, 'a' if mode == 'a' else 'w') as lg:
-                    if mode != 'a':
-                        lg.write("")
-                    lg.write(f"\nTask {task_idx} ({task_name}):\n")
-                    lg.write(f"Optuna 最佳分数: {best_value:.6f}\n")
-                    lg.write(f"CV metrics (mean ± std):\n")
-                    for metric in ['ROC AUC', 'PR AUC', 'Accuracy', 'F1', 'MCC',
+                with open(log_path, 'a' if mode == 'a' else 'w') as lg:  # 打开全局汇总日志文件（追加或覆盖模式）
+                    if mode != 'a':  # 如果是覆盖模式（首次写入）
+                        lg.write("")  # 写入空字符串（初始化文件）
+                    lg.write(f"\nTask {task_idx} ({task_name}):\n")  # 写入任务信息
+                    lg.write(f"Optuna 最佳分数: {best_value:.6f}\n")  # 写入最佳分数
+                    lg.write(f"CV metrics (mean ± std):\n")  # 写入标题
+                    for metric in ['ROC AUC', 'PR AUC', 'Accuracy', 'F1', 'MCC',  # 遍历所有评估指标
                                    'Balanced Accuracy', 'Sensitivity', 'Specificity']:
-                        mean_val = cv_df[metric].mean()
-                        std_val = cv_df[metric].std()
-                        lg.write(f"{metric}: {mean_val:.6f} ± {std_val:.6f}\n")
-                    lg.write("-" * 60 + "\n")
+                        mean_val = cv_df[metric].mean()  # 计算均值
+                        std_val = cv_df[metric].std()  # 计算标准差
+                        lg.write(f"{metric}: {mean_val:.6f} ± {std_val:.6f}\n")  # 写入均值±标准差
+                    lg.write("-" * 60 + "\n")  # 写入分隔线
 
                 # 记录断点
-                with open(os.path.join(dataset_dir, 'last_completed_task.txt'), 'w') as ck:
-                    ck.write(str(task_idx))
+                with open(os.path.join(dataset_dir, 'last_completed_task.txt'), 'w') as ck:  # 打开断点记录文件
+                    ck.write(str(task_idx))  # 写入当前完成的任务索引（用于断点续跑）
 
-                log_message(f"完成任务 {task_idx}: {task_name}")
+                log_message(f"完成任务 {task_idx}: {task_name}")  # 记录任务完成日志
 
-        log_message("全部任务处理完成。")
+        log_message("全部任务处理完成。")  # 记录所有任务完成日志
 
-    except Exception as e:
-        log_message(f"程序异常终止: {str(e)}")
-        import traceback
-        log_message(traceback.format_exc())
-        sys.exit(1)
+    except Exception as e:  # 捕获所有异常
+        log_message(f"程序异常终止: {str(e)}")  # 记录异常信息
+        import traceback  # 导入traceback模块，用于获取详细异常堆栈
+        log_message(traceback.format_exc())  # 记录完整的异常堆栈信息
+        sys.exit(1)  # 以错误状态码退出程序
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # 如果脚本被直接运行（而非被导入）
+    main()  # 调用主函数
